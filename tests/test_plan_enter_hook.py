@@ -1,9 +1,10 @@
+import contextlib
 import json
 from unittest.mock import MagicMock, patch
 
 from planectra.hooks.plan_enter import main
 from planectra.hooks.prompt import main as prompt_main
-from planectra.models import ProjectConfig, GlobalConfig, SessionState
+from planectra.models import GlobalConfig, ProjectConfig, SessionState
 from planectra.transcript import extract_initial_prompt
 
 
@@ -94,9 +95,9 @@ def test_extract_initial_prompt_uses_last_enter(tmp_path):
 
 def _run_hook(hook_input):
     """Run the plan_enter hook with the given input dict."""
-    with patch("sys.stdin", MagicMock(read=lambda: json.dumps(hook_input))):
-        with patch("json.load", return_value=hook_input):
-            main()
+    with patch("sys.stdin", MagicMock(read=lambda: json.dumps(hook_input))), \
+         patch("json.load", return_value=hook_input):
+        main()
 
 
 def test_hook_sets_session_state(tmp_path, monkeypatch):
@@ -119,11 +120,8 @@ def test_hook_sets_session_state(tmp_path, monkeypatch):
          patch("planectra.hooks.plan_enter.save_session", side_effect=saved_sessions.append), \
          patch("planectra.hooks.plan_enter.config.get_project_for_dir", return_value=None), \
          patch("json.load", return_value=hook_input), \
-         patch("sys.stdin"):
-        try:
-            main()
-        except SystemExit:
-            pass
+         patch("sys.stdin"), contextlib.suppress(SystemExit):
+        main()
 
     # Session should be saved with correct state
     assert len(saved_sessions) >= 1
@@ -163,7 +161,8 @@ def test_hook_rag_output(tmp_path, capsys):
          patch("planectra.hooks.plan_enter.config.get_project_for_dir", return_value=project), \
          patch("planectra.hooks.plan_enter.config.load_global_config", return_value=gc), \
          patch("planectra.storage.vector.query_similar", return_value=mock_results) as mock_query, \
-         patch("planectra.rag_format.format_rag_context", return_value="<planectra-context>test</planectra-context>") as mock_format, \
+         patch("planectra.rag_format.format_rag_context",
+               return_value="<planectra-context>test</planectra-context>") as mock_format, \
          patch("json.load", return_value=hook_input), \
          patch("sys.stdin"):
         main()
@@ -198,11 +197,8 @@ def test_hook_no_output_when_rag_disabled(tmp_path, capsys):
          patch("planectra.hooks.plan_enter.save_session"), \
          patch("planectra.hooks.plan_enter.config.get_project_for_dir", return_value=project), \
          patch("json.load", return_value=hook_input), \
-         patch("sys.stdin"):
-        try:
-            main()
-        except SystemExit:
-            pass
+         patch("sys.stdin"), contextlib.suppress(SystemExit):
+        main()
 
     captured = capsys.readouterr()
     assert captured.out == ""
@@ -227,11 +223,8 @@ def test_hook_no_output_when_no_project(tmp_path, capsys):
          patch("planectra.hooks.plan_enter.save_session"), \
          patch("planectra.hooks.plan_enter.config.get_project_for_dir", return_value=None), \
          patch("json.load", return_value=hook_input), \
-         patch("sys.stdin"):
-        try:
-            main()
-        except SystemExit:
-            pass
+         patch("sys.stdin"), contextlib.suppress(SystemExit):
+        main()
 
     captured = capsys.readouterr()
     assert captured.out == ""
@@ -278,11 +271,8 @@ def test_prompt_hook_sets_session_state_on_first_plan_prompt():
          patch("planectra.hooks.prompt.save_session", side_effect=saved_sessions.append), \
          patch("planectra.hooks.prompt.config.get_project_for_dir", return_value=None), \
          patch("json.load", return_value=hook_input), \
-         patch("sys.stdin"):
-        try:
-            prompt_main()
-        except SystemExit:
-            pass
+         patch("sys.stdin"), contextlib.suppress(SystemExit):
+        prompt_main()
 
     assert len(saved_sessions) >= 1
     saved = saved_sessions[0]
@@ -317,13 +307,12 @@ def test_prompt_hook_injects_rag_on_first_plan_prompt(capsys):
          patch("planectra.hooks.prompt.config.get_project_for_dir", return_value=project), \
          patch("planectra.hooks.prompt.config.load_global_config", return_value=gc), \
          patch("planectra.storage.vector.query_similar", return_value=mock_results) as mock_query, \
-         patch("planectra.rag_format.format_rag_context", return_value="<planectra-context>test</planectra-context>") as mock_format, \
+         patch("planectra.rag_format.format_rag_context",
+               return_value="<planectra-context>test</planectra-context>") as mock_format, \
          patch("json.load", return_value=hook_input), \
-         patch("sys.stdin"):
-        try:
-            prompt_main()
-        except SystemExit:
-            pass
+         patch("sys.stdin"), \
+         contextlib.suppress(SystemExit):
+        prompt_main()
 
     captured = capsys.readouterr()
     assert "<planectra-context>" in captured.out
@@ -347,11 +336,8 @@ def test_prompt_hook_increments_iteration_on_subsequent_prompt():
     with patch("planectra.hooks.prompt.load_session", return_value=session), \
          patch("planectra.hooks.prompt.save_session", side_effect=saved_sessions.append), \
          patch("json.load", return_value=hook_input), \
-         patch("sys.stdin"):
-        try:
-            prompt_main()
-        except SystemExit:
-            pass
+         patch("sys.stdin"), contextlib.suppress(SystemExit):
+        prompt_main()
 
     assert len(saved_sessions) == 1
     assert saved_sessions[0].iteration_count == 3
@@ -373,11 +359,8 @@ def test_prompt_hook_no_rag_when_no_project(capsys):
          patch("planectra.hooks.prompt.save_session"), \
          patch("planectra.hooks.prompt.config.get_project_for_dir", return_value=None), \
          patch("json.load", return_value=hook_input), \
-         patch("sys.stdin"):
-        try:
-            prompt_main()
-        except SystemExit:
-            pass
+         patch("sys.stdin"), contextlib.suppress(SystemExit):
+        prompt_main()
 
     captured = capsys.readouterr()
     assert captured.out == ""
@@ -404,11 +387,8 @@ def test_prompt_hook_no_rag_when_rag_disabled(capsys):
          patch("planectra.hooks.prompt.save_session"), \
          patch("planectra.hooks.prompt.config.get_project_for_dir", return_value=project), \
          patch("json.load", return_value=hook_input), \
-         patch("sys.stdin"):
-        try:
-            prompt_main()
-        except SystemExit:
-            pass
+         patch("sys.stdin"), contextlib.suppress(SystemExit):
+        prompt_main()
 
     captured = capsys.readouterr()
     assert captured.out == ""

@@ -2,6 +2,7 @@
 """PreToolUse:ExitPlanMode hook — store plan and prompt reflection."""
 from __future__ import annotations
 
+import contextlib
 import json
 import sys
 
@@ -38,10 +39,8 @@ def main():
     # Best-effort: enrich with transcript data
     plan_data = {"initial_prompt": "", "plan_content": "", "conversation": [], "num_attempts": 0}
     if transcript_path:
-        try:
+        with contextlib.suppress(Exception):
             plan_data = extract_plan_conversation(transcript_path)
-        except Exception:
-            pass
 
     # Merge: prefer direct sources, fall back to transcript
     if not initial_prompt:

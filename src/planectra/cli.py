@@ -59,7 +59,8 @@ def install(scope: str):
         "Ask user for feedback after plan acceptance?", default=gc.default_include_user_comment,
     )
     gc.default_scan_all_projects = click.confirm(
-        "Search across all Planectra projects for RAG? (no = current project only)", default=gc.default_scan_all_projects,
+        "Search across all Planectra projects for RAG? (no = current project only)",
+        default=gc.default_scan_all_projects,
     )
     config.save_global_config(gc)
     click.echo("Settings saved.")
@@ -222,7 +223,8 @@ def show(plan_uuid: str, as_json: bool):
         for line in content.split("\n"):
             click.echo(f"  {line}")
         if len(record.plan_content) > 2000:
-            click.echo(click.style(f"  ... ({len(record.plan_content)} chars total, use --json for full content)", dim=True))
+            msg = f"  ... ({len(record.plan_content)} chars total, use --json for full content)"
+            click.echo(click.style(msg, dim=True))
     else:
         click.echo(click.style("  (no plan content)", dim=True))
 
