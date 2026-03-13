@@ -1,5 +1,7 @@
 # Planectra
 
+> **Early alpha (v0.1.0)** — This project is under active development. Expect rough edges, breaking changes, and incomplete features. Bug reports and feedback are welcome via [GitHub Issues](https://github.com/ChernovAndrey/Planectra/issues).
+
 Planning conversation tracker with RAG for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
 Claude Code's plan mode produces valuable planning conversations, but this knowledge is lost after each session. Planectra captures planning sessions (conversations + metadata), stores them in a vector database, and uses RAG to surface relevant past plans during new planning sessions.
