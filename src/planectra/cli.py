@@ -12,20 +12,32 @@ def main():
 
 
 @main.command()
-def install():
+@click.option(
+    "--scope",
+    type=click.Choice(["global", "project"]),
+    default="global",
+    help="global: ~/.claude/ (all projects). project: .claude/ in cwd (this project only).",
+)
+def install(scope: str):
     """Install Planectra hooks and MCP server."""
     from planectra.installer import install as do_install
 
-    click.echo(do_install())
+    click.echo(do_install(scope=scope))
     click.echo("\nPlanectra installed successfully!")
 
 
 @main.command()
-def uninstall():
+@click.option(
+    "--scope",
+    type=click.Choice(["global", "project"]),
+    default="global",
+    help="global: ~/.claude/ (all projects). project: .claude/ in cwd (this project only).",
+)
+def uninstall(scope: str):
     """Remove Planectra hooks and MCP server."""
     from planectra.installer import uninstall as do_uninstall
 
-    click.echo(do_uninstall())
+    click.echo(do_uninstall(scope=scope))
 
 
 @main.command()

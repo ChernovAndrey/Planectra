@@ -63,25 +63,47 @@ Embeddings run locally on CPU via ONNX Runtime (~150MB total RAM, no GPU require
 
 Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/) (recommended) or pip.
 
-```bash
-# Clone and install
-git clone https://github.com/yourusername/planectra.git
-cd planectra
-uv venv && uv pip install -e .
+### Option 1: Install from GitHub (no clone needed)
 
-# Register hooks and MCP server with Claude Code
+```bash
+uv tool install git+https://github.com/ChernovAndrey/Planectra
 planectra install
 ```
 
-This does four things:
+### Option 2: Install from source
+
+```bash
+git clone https://github.com/ChernovAndrey/Planectra.git
+cd Planectra
+uv tool install -e .
+planectra install
+```
+
+`planectra install` does four things:
 1. Creates `~/.planectra/` directory structure
 2. Merges hooks into `~/.claude/settings.json` (non-destructive)
 3. Registers the MCP server via `claude mcp add`
 4. Adds Planectra instructions to `~/.claude/CLAUDE.md`
 
+### Scope: global vs project-local
+
+By default, hooks and settings are installed globally (`~/.claude/`). To install only for the current project:
+
+```bash
+planectra install --scope project
+```
+
+This writes to `.claude/settings.json` and `.claude/CLAUDE.md` in the current directory instead, leaving your global Claude Code config untouched.
+
+| Flag | Hooks & CLAUDE.md | MCP server | Affects |
+|---|---|---|---|
+| `--scope global` (default) | `~/.claude/` | global | All Claude Code sessions |
+| `--scope project` | `./.claude/` | project | Only sessions in this directory |
+
 To remove:
 ```bash
-planectra uninstall
+planectra uninstall              # or --scope project
+uv tool uninstall planectra
 ```
 
 ## Usage
@@ -189,8 +211,8 @@ ChromaDB is a search index only — disk JSON files are the single source of tru
 ## Development
 
 ```bash
-git clone https://github.com/yourusername/planectra.git
-cd planectra
+git clone https://github.com/ChernovAndrey/Planectra.git
+cd Planectra
 uv venv && uv pip install -e . && uv pip install ruff pytest
 
 # Run tests

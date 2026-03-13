@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
 from planectra.config import ensure_dirs
-
-CLAUDE_SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
-CLAUDE_MD_PATH = Path.home() / ".claude" / "CLAUDE.md"
 
 PLANECTRA_HOOKS = {
     "UserPromptSubmit": [
@@ -42,35 +40,55 @@ If the project has `include_user_comment` enabled, ask the user for optional fee
 """
 
 
-def install() -> str:
-    """Install Planectra hooks and MCP server."""
+def _resolve_paths(scope: str) -> tuple[Path, Path]:
+    """Return (settings_path, claude_md_path) based on scope."""
+    base = Path(os.getcwd()) / ".claude" if scope == "project" else Path.home() / ".claude"
+    return base / "settings.json", base / "CLAUDE.md"
+
+
+def install(scope: str = "global") -> str:
+    """Install Planectra hooks and MCP server.
+
+    Args:
+        scope: "global" for ~/.claude/ or "project" for ./.claude/ in cwd.
+    """
+    settings_path, claude_md_path = _resolve_paths(scope)
+    scope_label = "~/.claude" if scope == "global" else ".claude (project-local)"
     messages = []
 
     ensure_dirs()
     messages.append("Created ~/.planectra/ directory structure")
 
-    _merge_hooks()
-    messages.append("Added hooks to ~/.claude/settings.json")
+    _merge_hooks(settings_path)
+    messages.append(f"Added hooks to {scope_label}/settings.json")
 
-    _register_mcp_server()
-    messages.append("Registered MCP server")
+    mcp_scope = [] if scope == "global" else ["--scope", "project"]
+    _register_mcp_server(mcp_scope)
+    messages.append(f"Registered MCP server ({scope})")
 
-    _add_claude_md_instructions()
-    messages.append("Added instructions to ~/.claude/CLAUDE.md")
+    _add_claude_md_instructions(claude_md_path)
+    messages.append(f"Added instructions to {scope_label}/CLAUDE.md")
 
     return "\n".join(messages)
 
 
-def uninstall() -> str:
-    """Remove Planectra hooks and MCP server."""
+def uninstall(scope: str = "global") -> str:
+    """Remove Planectra hooks and MCP server.
+
+    Args:
+        scope: "global" for ~/.claude/ or "project" for ./.claude/ in cwd.
+    """
+    settings_path, claude_md_path = _resolve_paths(scope)
+    scope_label = "~/.claude" if scope == "global" else ".claude (project-local)"
     messages = []
 
-    _remove_hooks()
-    messages.append("Removed hooks from ~/.claude/settings.json")
+    _remove_hooks(settings_path)
+    messages.append(f"Removed hooks from {scope_label}/settings.json")
 
+    mcp_scope = [] if scope == "global" else ["--scope", "project"]
     try:
         subprocess.run(
-            ["claude", "mcp", "remove", "planectra"],
+            ["claude", "mcp", "remove", *mcp_scope, "planectra"],
             capture_output=True,
             timeout=10,
         )
@@ -78,39 +96,38 @@ def uninstall() -> str:
     except Exception as e:
         messages.append(f"Warning: Could not unregister MCP server: {e}")
 
-    _remove_claude_md_instructions()
-    messages.append("Removed instructions from ~/.claude/CLAUDE.md")
+    _remove_claude_md_instructions(claude_md_path)
+    messages.append(f"Removed instructions from {scope_label}/CLAUDE.md")
 
     messages.append("\nNote: ~/.planectra/ data directory preserved. Delete manually if desired.")
     return "\n".join(messages)
 
 
-def _merge_hooks() -> None:
+def _merge_hooks(settings_path: Path) -> None:
     """Merge Planectra hooks into Claude settings without overwriting existing hooks."""
     settings: dict = {}
-    if CLAUDE_SETTINGS_PATH.exists():
-        settings = json.loads(CLAUDE_SETTINGS_PATH.read_text())
+    if settings_path.exists():
+        settings = json.loads(settings_path.read_text())
 
     hooks = settings.get("hooks", {})
 
     for event, hook_list in PLANECTRA_HOOKS.items():
         existing = hooks.get(event, [])
-        # Remove any existing planectra hooks first
         existing = [h for h in existing if not _is_planectra_hook(h)]
         existing.extend(hook_list)
         hooks[event] = existing
 
     settings["hooks"] = hooks
-    CLAUDE_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CLAUDE_SETTINGS_PATH.write_text(json.dumps(settings, indent=2))
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps(settings, indent=2))
 
 
-def _remove_hooks() -> None:
+def _remove_hooks(settings_path: Path) -> None:
     """Remove Planectra hooks from Claude settings."""
-    if not CLAUDE_SETTINGS_PATH.exists():
+    if not settings_path.exists():
         return
 
-    settings = json.loads(CLAUDE_SETTINGS_PATH.read_text())
+    settings = json.loads(settings_path.read_text())
     hooks = settings.get("hooks", {})
 
     for event in list(hooks.keys()):
@@ -123,7 +140,7 @@ def _remove_hooks() -> None:
     elif "hooks" in settings:
         del settings["hooks"]
 
-    CLAUDE_SETTINGS_PATH.write_text(json.dumps(settings, indent=2))
+    settings_path.write_text(json.dumps(settings, indent=2))
 
 
 def _is_planectra_hook(hook_entry: dict) -> bool:
@@ -135,10 +152,11 @@ def _is_planectra_hook(hook_entry: dict) -> bool:
     return False
 
 
-def _register_mcp_server() -> None:
+def _register_mcp_server(scope_args: list[str]) -> None:
     """Register Planectra as an MCP server with Claude Code."""
     cmd = [
         "claude", "mcp", "add",
+        *scope_args,
         "--transport", "stdio",
         "planectra", "--",
         "planectra-mcp-server",
@@ -146,33 +164,34 @@ def _register_mcp_server() -> None:
     try:
         result = subprocess.run(cmd, capture_output=True, timeout=10)
         if result.returncode != 0:
-            # Might already exist — remove and re-add
-            subprocess.run(["claude", "mcp", "remove", "planectra"], capture_output=True, timeout=10)
+            subprocess.run(
+                ["claude", "mcp", "remove", *scope_args, "planectra"], capture_output=True, timeout=10
+            )
             subprocess.run(cmd, capture_output=True, timeout=10)
     except FileNotFoundError:
         pass  # claude CLI not found
 
 
-def _add_claude_md_instructions() -> None:
-    """Add Planectra instructions to ~/.claude/CLAUDE.md."""
+def _add_claude_md_instructions(claude_md_path: Path) -> None:
+    """Add Planectra instructions to CLAUDE.md."""
     content = ""
-    if CLAUDE_MD_PATH.exists():
-        content = CLAUDE_MD_PATH.read_text()
+    if claude_md_path.exists():
+        content = claude_md_path.read_text()
 
     if "Planectra - Planning Conversation Tracker" in content:
-        _remove_claude_md_instructions()
-        content = CLAUDE_MD_PATH.read_text() if CLAUDE_MD_PATH.exists() else ""
+        _remove_claude_md_instructions(claude_md_path)
+        content = claude_md_path.read_text() if claude_md_path.exists() else ""
 
-    CLAUDE_MD_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CLAUDE_MD_PATH.write_text(content.rstrip() + "\n" + CLAUDE_MD_SECTION)
+    claude_md_path.parent.mkdir(parents=True, exist_ok=True)
+    claude_md_path.write_text(content.rstrip() + "\n" + CLAUDE_MD_SECTION)
 
 
-def _remove_claude_md_instructions() -> None:
+def _remove_claude_md_instructions(claude_md_path: Path) -> None:
     """Remove Planectra section from CLAUDE.md."""
-    if not CLAUDE_MD_PATH.exists():
+    if not claude_md_path.exists():
         return
 
-    content = CLAUDE_MD_PATH.read_text()
+    content = claude_md_path.read_text()
     marker = "## Planectra - Planning Conversation Tracker"
     if marker not in content:
         return
@@ -183,4 +202,4 @@ def _remove_claude_md_instructions() -> None:
     end = idx + len(marker) + next_heading if next_heading != -1 else len(content)
 
     content = content[:idx].rstrip() + content[end:]
-    CLAUDE_MD_PATH.write_text(content.strip() + "\n" if content.strip() else "")
+    claude_md_path.write_text(content.strip() + "\n" if content.strip() else "")
