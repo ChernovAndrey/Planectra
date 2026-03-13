@@ -237,37 +237,37 @@ Show full details of a plan.
 
 ```bash
 $ planectra show f1e2d3c4-...
-Plan: f1e2d3c4-...
-Project: my-api (a1b2c3d4-...)
-Created: 2026-03-10T14:30:00+00:00
+Plan f1e2d3c4
+Project:  my-api
+Created:  Mar 10, 2026 at 02:30 PM
 Attempts: 3
-Retrieved plans (RAG): ['a9b8c7d6-...']
+Full UUID: f1e2d3c4-...
 
---- Initial Prompt ---
-Design a caching mechanism for API responses
+── Prompt ──────────────────────────────
+  Design a caching mechanism for API responses
 
---- Conversation (6 turns) ---
+── Conversation (6 turns) ──────────────
 
-[USER attempt 1]
-Design a caching mechanism for API responses
+  You [attempt 1]:
+  Design a caching mechanism for API responses
 
-[ASSISTANT attempt 1]
-# Plan v1: Basic Redis cache...
+  Claude [attempt 1]:
+  # Plan v1: Basic Redis cache...
 
-[USER attempt 2]
-Missing cache invalidation strategy
+  You [attempt 2]:
+  Missing cache invalidation strategy
 
-[ASSISTANT attempt 2]
-# Plan v2: Redis cache with TTL...
-...
+  Claude [attempt 2]:
+  # Plan v2: Redis cache with TTL...
+  ...
 
---- Plan Content ---
-# Plan v3: Redis cache with per-endpoint TTL...
+── Plan ────────────────────────────────
+  # Plan v3: Redis cache with per-endpoint TTL...
 
---- Reflection ---
-Issues: Cache invalidation was missing, didn't consider TTL policies
-Improvements: Added per-endpoint TTL config, separated read/write cache paths
-RAG usefulness: Redis caching plan helped with TTL design patterns
+── Reflection ──────────────────────────
+  Issues:       Cache invalidation was missing, didn't consider TTL policies
+  Improvements: Added per-endpoint TTL config, separated read/write cache paths
+  RAG useful:   Redis caching plan helped with TTL design patterns
 ```
 
 Use `--json` for full raw output:

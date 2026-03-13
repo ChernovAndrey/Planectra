@@ -15,6 +15,12 @@ PLANECTRA_HOOKS = {
     ],
     "PostToolUse": [
         {
+            "matcher": "EnterPlanMode",
+            "hooks": [{"type": "command", "command": "planectra-hook-plan-enter", "timeout": 10}],
+        },
+    ],
+    "PreToolUse": [
+        {
             "matcher": "ExitPlanMode",
             "hooks": [{"type": "command", "command": "planectra-hook-plan-exit", "timeout": 10}],
         }

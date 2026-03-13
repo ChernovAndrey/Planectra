@@ -25,17 +25,31 @@ def is_in_plan_mode(transcript_path: str) -> bool:
     if size > read_size:
         lines = lines[1:]  # Skip partial first line
 
+    parsed = []
     for line in lines:
         line = line.strip()
         if not line:
             continue
         try:
-            obj = json.loads(line)
+            parsed.append(json.loads(line))
         except json.JSONDecodeError:
             continue
+
+    for obj in parsed:
         last_event = _check_plan_event(obj, last_event)
 
-    return last_event == "EnterPlanMode"
+    if last_event == "EnterPlanMode":
+        return True
+    if last_event == "ExitPlanMode":
+        return False
+
+    # No tool-based plan events found — check the last user entry's
+    # permissionMode field (covers user-toggled plan mode via Shift+Tab / /plan)
+    for obj in reversed(parsed):
+        if obj.get("type") == "user" and "permissionMode" in obj:
+            return obj["permissionMode"] == "plan"
+
+    return False
 
 
 def _check_plan_event(obj: dict, current: str | None) -> str | None:
@@ -53,6 +67,53 @@ def _check_plan_event(obj: dict, current: str | None) -> str | None:
             if name in ("EnterPlanMode", "ExitPlanMode"):
                 return name
     return current
+
+
+def extract_initial_prompt(transcript_path: str) -> str:
+    """Extract the user message that triggered the last EnterPlanMode.
+
+    Scans backward from the last EnterPlanMode to find the preceding
+    non-meta user message.
+    """
+    path = Path(transcript_path)
+    if not path.exists():
+        return ""
+
+    entries = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+
+    # Find the last EnterPlanMode
+    plan_start = None
+    for i, entry in enumerate(entries):
+        if entry.get("type") == "assistant":
+            content = entry.get("message", {}).get("content", [])
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "tool_use":
+                        if block.get("name") == "EnterPlanMode":
+                            plan_start = i
+
+    if plan_start is None:
+        return ""
+
+    # Search backward for the user message that triggered it
+    for i in range(plan_start - 1, -1, -1):
+        entry = entries[i]
+        if entry.get("type") == "user":
+            text = entry.get("message", {}).get("content", "")
+            if isinstance(text, str) and text.strip() and not entry.get("isMeta"):
+                return text.strip()
+        elif entry.get("type") == "assistant":
+            break
+    return ""
 
 
 def extract_plan_conversation(transcript_path: str) -> dict:
@@ -96,6 +157,19 @@ def extract_plan_conversation(transcript_path: str) -> dict:
 
     if plan_start is None:
         return {"conversation": [], "plan_content": "", "initial_prompt": "", "num_attempts": 0}
+
+    # Search backward for the user message that triggered EnterPlanMode
+    pre_plan_prompt = ""
+    if plan_start > 0:
+        for i in range(plan_start - 1, -1, -1):
+            entry = entries[i]
+            if entry.get("type") == "user":
+                text = entry.get("message", {}).get("content", "")
+                if isinstance(text, str) and text.strip() and not entry.get("isMeta"):
+                    pre_plan_prompt = text.strip()
+                    break
+            elif entry.get("type") == "assistant":
+                break  # don't go past previous assistant turn
 
     end_idx = plan_end if plan_end is not None else len(entries)
     plan_entries = entries[plan_start : end_idx + 1]
@@ -149,6 +223,6 @@ def extract_plan_conversation(transcript_path: str) -> dict:
     return {
         "conversation": conversation,
         "plan_content": plan_content,
-        "initial_prompt": initial_prompt,
+        "initial_prompt": pre_plan_prompt or initial_prompt,
         "num_attempts": max(attempt, 1),
     }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PostToolUse:ExitPlanMode hook — store plan and prompt reflection."""
+"""PreToolUse:ExitPlanMode hook — store plan and prompt reflection."""
 from __future__ import annotations
 
 import json
@@ -28,20 +28,38 @@ def main():
     if not project:
         sys.exit(0)
 
-    plan_data = extract_plan_conversation(transcript_path)
+    # Primary: get plan content from hook input (always available)
+    tool_input = hook_input.get("tool_input", {})
+    plan_content = tool_input.get("plan", "")
 
-    if not plan_data["initial_prompt"] and not plan_data["plan_content"]:
+    # Primary: get initial_prompt from session state (set by prompt hook)
+    initial_prompt = session.initial_prompt or ""
+
+    # Best-effort: enrich with transcript data
+    plan_data = {"initial_prompt": "", "plan_content": "", "conversation": [], "num_attempts": 0}
+    if transcript_path:
+        try:
+            plan_data = extract_plan_conversation(transcript_path)
+        except Exception:
+            pass
+
+    # Merge: prefer direct sources, fall back to transcript
+    if not initial_prompt:
+        initial_prompt = plan_data["initial_prompt"]
+    if not plan_content:
+        plan_content = plan_data["plan_content"]
+
+    # Guard: need at least a plan
+    if not plan_content and not initial_prompt:
         sys.exit(0)
-
-    initial_prompt = session.initial_prompt or plan_data["initial_prompt"]
 
     record = PlanRecord(
         project_uuid=project.project_uuid,
         project_name=project.project_name,
         initial_prompt=initial_prompt,
-        plan_content=plan_data["plan_content"],
+        plan_content=plan_content,
         conversation=plan_data["conversation"],
-        num_attempts=plan_data["num_attempts"] or session.iteration_count or 1,
+        num_attempts=session.iteration_count or plan_data["num_attempts"] or 1,
         retrieved_plan_uuids=session.retrieved_plan_uuids,
         session_id=session_id,
         metadata={"cwd": cwd},
@@ -74,7 +92,14 @@ def main():
     if project.include_user_comment:
         finalize_msg += " Ask the user if they'd like to add any feedback."
 
-    print(finalize_msg)
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "additionalContext": finalize_msg,
+        }
+    }
+    print(json.dumps(output))
 
 
 if __name__ == "__main__":

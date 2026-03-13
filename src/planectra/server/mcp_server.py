@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
@@ -38,6 +37,11 @@ def planectra_init_project(
     scan_project_ids: list[str] | None = None,
 ) -> str:
     """Initialize a new project or assign this directory to an existing project.
+
+    Only call this if the SessionStart hook indicated the directory is not
+    configured for plan tracking. If the hook already printed a project name
+    (e.g. "[Planectra] Project: <name>"), the directory is already set up and
+    you should NOT call this tool.
 
     Args:
         project_name: Human-readable name for the project (ignored if existing_project_uuid is set)

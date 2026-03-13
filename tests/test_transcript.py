@@ -72,6 +72,42 @@ def test_is_in_plan_mode_missing_file():
     assert is_in_plan_mode("/nonexistent/path.jsonl") is False
 
 
+def _make_user_with_permission_mode(text, permission_mode):
+    return {
+        "type": "user",
+        "message": {"role": "user", "content": text},
+        "permissionMode": permission_mode,
+    }
+
+
+def test_is_in_plan_mode_via_permission_mode(tmp_path):
+    """User-toggled plan mode (Shift+Tab) sets permissionMode on user entries."""
+    transcript = tmp_path / "transcript.jsonl"
+    _write_transcript(transcript, [
+        _make_user_with_permission_mode("Design a cache", "plan"),
+    ])
+    assert is_in_plan_mode(str(transcript)) is True
+
+
+def test_is_in_plan_mode_permission_mode_not_plan(tmp_path):
+    transcript = tmp_path / "transcript.jsonl"
+    _write_transcript(transcript, [
+        _make_user_with_permission_mode("hello", "default"),
+    ])
+    assert is_in_plan_mode(str(transcript)) is False
+
+
+def test_is_in_plan_mode_exit_overrides_permission_mode(tmp_path):
+    """ExitPlanMode tool call should take precedence over earlier permissionMode."""
+    transcript = tmp_path / "transcript.jsonl"
+    _write_transcript(transcript, [
+        _make_user_with_permission_mode("Design a cache", "plan"),
+        _make_assistant_text("# Plan"),
+        _make_assistant_tool_use("ExitPlanMode"),
+    ])
+    assert is_in_plan_mode(str(transcript)) is False
+
+
 def test_extract_plan_conversation(tmp_path):
     transcript = tmp_path / "transcript.jsonl"
     _write_transcript(transcript, [
@@ -85,7 +121,7 @@ def test_extract_plan_conversation(tmp_path):
     ])
 
     result = extract_plan_conversation(str(transcript))
-    assert result["initial_prompt"] == "Design a caching layer"
+    assert result["initial_prompt"] == "some preamble"
     assert result["plan_content"] == "# Plan v2\nCache with TTL"
     assert result["num_attempts"] == 2
     assert len(result["conversation"]) == 4  # 2 user + 2 assistant

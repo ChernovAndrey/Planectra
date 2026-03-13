@@ -155,6 +155,23 @@ def search(query: str, project_uuid: str, top_k: int):
             click.echo(f"     UUID: {r['plan_uuid']}, Attempts: {record.num_attempts}")
 
 
+def _format_date(iso_str: str) -> str:
+    """Parse ISO date string to human-friendly format."""
+    from datetime import datetime
+
+    try:
+        dt = datetime.fromisoformat(iso_str)
+        return dt.strftime("%b %d, %Y at %I:%M %p")
+    except (ValueError, TypeError):
+        return iso_str or "unknown"
+
+
+def _section(title: str, width: int = 40) -> str:
+    """Return a styled section header like: ── Title ──────────────"""
+    prefix = f"\u2500\u2500 {title} "
+    return prefix + "\u2500" * max(0, width - len(prefix))
+
+
 @main.command()
 @click.argument("plan_uuid")
 @click.option("--json", "as_json", is_flag=True, help="Output as raw JSON")
@@ -173,39 +190,53 @@ def show(plan_uuid: str, as_json: bool):
         click.echo(json_module.dumps(record.model_dump(), indent=2))
         return
 
-    click.echo(f"Plan: {record.plan_uuid}")
-    click.echo(f"Project: {record.project_name} ({record.project_uuid})")
-    click.echo(f"Created: {record.created_at}")
-    click.echo(f"Session: {record.session_id or 'n/a'}")
+    short_id = record.plan_uuid[:8]
+    click.echo(f"Plan {short_id}")
+    click.echo(f"Project:  {record.project_name}")
+    click.echo(f"Created:  {_format_date(record.created_at)}")
     click.echo(f"Attempts: {record.num_attempts}")
-    click.echo(f"Retrieved plans (RAG): {record.retrieved_plan_uuids or 'none'}")
-    if record.metadata:
-        click.echo(f"Metadata: {record.metadata}")
+    click.echo(f"Full UUID: {record.plan_uuid}")
 
-    click.echo(f"\n--- Initial Prompt ---\n{record.initial_prompt}")
+    # Prompt
+    click.echo(f"\n{_section('Prompt')}")
+    if record.initial_prompt:
+        click.echo(f"  {record.initial_prompt}")
+    else:
+        click.echo(click.style("  (no prompt captured)", dim=True))
 
+    # Conversation
     if record.conversation:
-        click.echo(f"\n--- Conversation ({len(record.conversation)} turns) ---")
+        click.echo(f"\n{_section(f'Conversation ({len(record.conversation)} turns)')}")
         for turn in record.conversation:
-            label = "USER" if turn.role == "user" else "ASSISTANT"
+            role = "You" if turn.role == "user" else "Claude"
             attempt = f" [attempt {turn.attempt_number}]" if turn.attempt_number else ""
-            click.echo(f"\n[{label}{attempt}]")
-            click.echo(turn.content[:500] + ("..." if len(turn.content) > 500 else ""))
+            click.echo(f"\n  {click.style(role, bold=True)}{attempt}:")
+            content = turn.content[:500] + ("..." if len(turn.content) > 500 else "")
+            for line in content.split("\n"):
+                click.echo(f"  {line}")
 
-    click.echo(f"\n--- Plan Content ---\n{record.plan_content[:2000]}")
-    if len(record.plan_content) > 2000:
-        click.echo(f"... ({len(record.plan_content)} chars total, use --json for full content)")
+    # Plan
+    click.echo(f"\n{_section('Plan')}")
+    if record.plan_content:
+        content = record.plan_content[:2000]
+        for line in content.split("\n"):
+            click.echo(f"  {line}")
+        if len(record.plan_content) > 2000:
+            click.echo(click.style(f"  ... ({len(record.plan_content)} chars total, use --json for full content)", dim=True))
+    else:
+        click.echo(click.style("  (no plan content)", dim=True))
 
+    # Reflection
     if record.plan_issues or record.improvement_summary or record.rag_usefulness or record.user_comment:
-        click.echo("\n--- Reflection ---")
+        click.echo(f"\n{_section('Reflection')}")
         if record.plan_issues:
-            click.echo(f"Issues: {record.plan_issues}")
+            click.echo(f"  Issues:       {record.plan_issues}")
         if record.improvement_summary:
-            click.echo(f"Improvements: {record.improvement_summary}")
+            click.echo(f"  Improvements: {record.improvement_summary}")
         if record.rag_usefulness:
-            click.echo(f"RAG usefulness: {record.rag_usefulness}")
+            click.echo(f"  RAG useful:   {record.rag_usefulness}")
         if record.user_comment:
-            click.echo(f"User comment: {record.user_comment}")
+            click.echo(f"  User comment: {record.user_comment}")
 
 
 @main.command("import")
