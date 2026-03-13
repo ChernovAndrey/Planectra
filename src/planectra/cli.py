@@ -20,10 +20,23 @@ def main():
 )
 def install(scope: str):
     """Install Planectra hooks and MCP server."""
+    from pathlib import Path
+
     from planectra.installer import install as do_install
 
     click.echo(do_install(scope=scope))
     click.echo("\nPlanectra installed successfully!")
+
+    # Check for existing plans and offer to import
+    plans_dir = Path.home() / ".claude" / "plans"
+    if plans_dir.exists():
+        plan_files = list(plans_dir.glob("*.md"))
+        if plan_files and click.confirm(
+            f"\nFound {len(plan_files)} existing plan(s) in ~/.claude/plans/. Import them now?"
+        ):
+            from planectra.importer import import_existing_plans
+
+            click.echo(import_existing_plans())
 
 
 @main.command()
