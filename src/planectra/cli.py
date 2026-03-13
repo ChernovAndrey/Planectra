@@ -22,10 +22,47 @@ def install(scope: str):
     """Install Planectra hooks and MCP server."""
     from pathlib import Path
 
+    from planectra import config
     from planectra.installer import install as do_install
 
     click.echo(do_install(scope=scope))
     click.echo("\nPlanectra installed successfully!")
+
+    # Auto-initialize project when scope=project
+    if scope == "project":
+        import os
+
+        cwd = os.getcwd()
+        gc = config.load_global_config()
+        if cwd not in gc.dir_to_project:
+            dir_name = os.path.basename(cwd)
+            project_name = click.prompt("Project name for this directory", default=dir_name)
+            proj = config.create_project_config(project_name, project_dirs=[cwd])
+            config.save_project_config(proj)
+            gc.dir_to_project[cwd] = proj.project_uuid
+            config.save_global_config(gc)
+            click.echo(f"Project '{project_name}' initialized ({proj.project_uuid})")
+
+    # Interactive configuration of global defaults
+    click.echo("\n--- Default settings (inherited by new projects) ---")
+    click.echo("Press Enter to accept defaults.\n")
+
+    gc = config.load_global_config()
+    gc.default_use_rag = click.confirm("Enable RAG context injection?", default=gc.default_use_rag)
+    gc.default_top_k = click.prompt("Number of similar plans to retrieve (top_k)", default=gc.default_top_k, type=int)
+    gc.default_rag_verbosity = click.prompt(
+        "RAG verbosity (compact/standard/full)", default=gc.default_rag_verbosity,
+        type=click.Choice(["compact", "standard", "full"]),
+    )
+    gc.default_max_rag_tokens = click.prompt("Max RAG tokens", default=gc.default_max_rag_tokens, type=int)
+    gc.default_include_user_comment = click.confirm(
+        "Ask user for feedback after plan acceptance?", default=gc.default_include_user_comment,
+    )
+    gc.default_scan_all_projects = click.confirm(
+        "Search across all Planectra projects for RAG? (no = current project only)", default=gc.default_scan_all_projects,
+    )
+    config.save_global_config(gc)
+    click.echo("Settings saved.")
 
     # Check for existing plans and offer to import
     plans_dir = Path.home() / ".claude" / "plans"
@@ -61,7 +98,6 @@ def init(project_name: str, project_dir: str):
     import os
 
     from planectra import config
-    from planectra.models import ProjectConfig
 
     if not project_dir:
         project_dir = os.getcwd()
@@ -74,12 +110,7 @@ def init(project_name: str, project_dir: str):
             click.echo(f"Directory already configured as '{proj.project_name}' ({existing})")
             return
 
-    proj = ProjectConfig(
-        project_name=project_name,
-        project_dirs=[project_dir],
-        scan_project_ids=[],
-    )
-    proj.scan_project_ids = [proj.project_uuid]
+    proj = config.create_project_config(project_name, project_dirs=[project_dir])
     config.save_project_config(proj)
 
     gc.dir_to_project[project_dir] = proj.project_uuid
@@ -122,6 +153,59 @@ def search(query: str, project_uuid: str, top_k: int):
         if record:
             click.echo(f"[{r['similarity']:.0%}] {record.project_name}: {record.initial_prompt[:100]}")
             click.echo(f"     UUID: {r['plan_uuid']}, Attempts: {record.num_attempts}")
+
+
+@main.command()
+@click.argument("plan_uuid")
+@click.option("--json", "as_json", is_flag=True, help="Output as raw JSON")
+def show(plan_uuid: str, as_json: bool):
+    """Show full details of a plan by UUID."""
+    import json as json_module
+
+    from planectra.storage.disk import load_plan_by_uuid
+
+    record = load_plan_by_uuid(plan_uuid)
+    if not record:
+        click.echo(f"Plan {plan_uuid} not found.")
+        return
+
+    if as_json:
+        click.echo(json_module.dumps(record.model_dump(), indent=2))
+        return
+
+    click.echo(f"Plan: {record.plan_uuid}")
+    click.echo(f"Project: {record.project_name} ({record.project_uuid})")
+    click.echo(f"Created: {record.created_at}")
+    click.echo(f"Session: {record.session_id or 'n/a'}")
+    click.echo(f"Attempts: {record.num_attempts}")
+    click.echo(f"Retrieved plans (RAG): {record.retrieved_plan_uuids or 'none'}")
+    if record.metadata:
+        click.echo(f"Metadata: {record.metadata}")
+
+    click.echo(f"\n--- Initial Prompt ---\n{record.initial_prompt}")
+
+    if record.conversation:
+        click.echo(f"\n--- Conversation ({len(record.conversation)} turns) ---")
+        for turn in record.conversation:
+            label = "USER" if turn.role == "user" else "ASSISTANT"
+            attempt = f" [attempt {turn.attempt_number}]" if turn.attempt_number else ""
+            click.echo(f"\n[{label}{attempt}]")
+            click.echo(turn.content[:500] + ("..." if len(turn.content) > 500 else ""))
+
+    click.echo(f"\n--- Plan Content ---\n{record.plan_content[:2000]}")
+    if len(record.plan_content) > 2000:
+        click.echo(f"... ({len(record.plan_content)} chars total, use --json for full content)")
+
+    if record.plan_issues or record.improvement_summary or record.rag_usefulness or record.user_comment:
+        click.echo("\n--- Reflection ---")
+        if record.plan_issues:
+            click.echo(f"Issues: {record.plan_issues}")
+        if record.improvement_summary:
+            click.echo(f"Improvements: {record.improvement_summary}")
+        if record.rag_usefulness:
+            click.echo(f"RAG usefulness: {record.rag_usefulness}")
+        if record.user_comment:
+            click.echo(f"User comment: {record.user_comment}")
 
 
 @main.command("import")

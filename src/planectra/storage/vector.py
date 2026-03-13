@@ -1,18 +1,21 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import chromadb
+if TYPE_CHECKING:
+    import chromadb
 
 from planectra import config
 
-_client: chromadb.ClientAPI | None = None
-_collection: chromadb.Collection | None = None
+_client: Any = None
+_collection: Any = None
 
 
 def get_collection() -> chromadb.Collection:
     global _client, _collection
     if _collection is None:
+        import chromadb
+
         config.VECTORDB_DIR.mkdir(parents=True, exist_ok=True)
         _client = chromadb.PersistentClient(path=str(config.VECTORDB_DIR))
         _collection = _client.get_or_create_collection(

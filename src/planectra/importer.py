@@ -5,14 +5,27 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+from planectra import config
 from planectra.models import PlanRecord
 from planectra.storage import disk, vector
 
 PLANECTRA_NAMESPACE = uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
 PLANS_DIR = Path.home() / ".claude" / "plans"
+DEFAULT_IMPORT_PROJECT = "imported"
 
 
-def import_existing_plans(project_uuid: str | None = None, project_name: str = "imported") -> str:
+def _get_or_create_import_project() -> tuple[str, str]:
+    """Get or create the default 'imported' project. Returns (uuid, name)."""
+    for proj in config.list_all_projects():
+        if proj.project_name == DEFAULT_IMPORT_PROJECT:
+            return proj.project_uuid, proj.project_name
+
+    proj = config.create_project_config(DEFAULT_IMPORT_PROJECT)
+    config.save_project_config(proj)
+    return proj.project_uuid, proj.project_name
+
+
+def import_existing_plans(project_uuid: str | None = None, project_name: str | None = None) -> str:
     """Import existing plans from ~/.claude/plans/*.md."""
     if not PLANS_DIR.exists():
         return "No plans directory found at ~/.claude/plans/"
@@ -20,6 +33,11 @@ def import_existing_plans(project_uuid: str | None = None, project_name: str = "
     plan_files = sorted(PLANS_DIR.glob("*.md"))
     if not plan_files:
         return "No .md files found in ~/.claude/plans/"
+
+    if project_uuid is None:
+        project_uuid, project_name = _get_or_create_import_project()
+    if project_name is None:
+        project_name = DEFAULT_IMPORT_PROJECT
 
     imported = 0
     skipped = 0
@@ -40,11 +58,9 @@ def import_existing_plans(project_uuid: str | None = None, project_name: str = "
             embed_text = _extract_embed_text(content)
             title = _extract_title(content, slug)
 
-            proj_uuid = project_uuid or "imported"
-
             record = PlanRecord(
                 plan_uuid=plan_uuid,
-                project_uuid=proj_uuid,
+                project_uuid=project_uuid,
                 project_name=project_name,
                 initial_prompt=title,
                 plan_content=content,
@@ -56,7 +72,7 @@ def import_existing_plans(project_uuid: str | None = None, project_name: str = "
             vector.add_plan(
                 plan_uuid=plan_uuid,
                 document=embed_text,
-                project_uuid=proj_uuid,
+                project_uuid=project_uuid,
                 created_at=record.created_at,
             )
             imported += 1

@@ -37,7 +37,7 @@ def test_global_config_defaults():
 
 
 def test_session_state():
-    session = SessionState("sess-1")
+    session = SessionState(session_id="sess-1")
     assert session.session_id == "sess-1"
     assert session.in_plan_mode is False
     assert session.rag_done is False

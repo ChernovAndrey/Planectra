@@ -8,6 +8,7 @@ from planectra.models import GlobalConfig, ProjectConfig
 PLANECTRA_DIR = Path.home() / ".planectra"
 PROJECTS_DIR = PLANECTRA_DIR / "projects"
 VECTORDB_DIR = PLANECTRA_DIR / "vectordb"
+SESSIONS_DIR = PLANECTRA_DIR / "sessions"
 SOCKET_PATH = PLANECTRA_DIR / "planectra.sock"
 CONFIG_PATH = PLANECTRA_DIR / "config.json"
 
@@ -16,6 +17,7 @@ def ensure_dirs() -> None:
     PLANECTRA_DIR.mkdir(exist_ok=True)
     PROJECTS_DIR.mkdir(exist_ok=True)
     VECTORDB_DIR.mkdir(exist_ok=True)
+    SESSIONS_DIR.mkdir(exist_ok=True)
 
 
 def load_global_config() -> GlobalConfig:
@@ -52,6 +54,22 @@ def get_project_for_dir(cwd: str) -> ProjectConfig | None:
     if project_uuid:
         return load_project_config(project_uuid)
     return None
+
+
+def create_project_config(project_name: str, project_dirs: list[str] | None = None) -> ProjectConfig:
+    """Create a new ProjectConfig inheriting defaults from GlobalConfig."""
+    gc = load_global_config()
+    proj = ProjectConfig(
+        project_name=project_name,
+        project_dirs=project_dirs or [],
+        use_rag=gc.default_use_rag,
+        top_k=gc.default_top_k,
+        rag_verbosity=gc.default_rag_verbosity,
+        max_rag_tokens=gc.default_max_rag_tokens,
+        include_user_comment=gc.default_include_user_comment,
+    )
+    proj.scan_project_ids = [proj.project_uuid]
+    return proj
 
 
 def list_all_projects() -> list[ProjectConfig]:

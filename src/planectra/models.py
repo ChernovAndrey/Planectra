@@ -47,17 +47,21 @@ class ProjectConfig(BaseModel):
 
 class GlobalConfig(BaseModel):
     version: str = "0.1.0"
+    default_use_rag: bool = True
     default_top_k: int = 3
+    default_rag_verbosity: Literal["compact", "standard", "full"] = "standard"
+    default_max_rag_tokens: int = 4000
+    default_include_user_comment: bool = True
+    default_scan_all_projects: bool = True
     socket_path: str = ""
     dir_to_project: dict[str, str] = {}
 
 
-class SessionState:
-    def __init__(self, session_id: str):
-        self.session_id = session_id
-        self.in_plan_mode = False
-        self.rag_done = False
-        self.initial_prompt: str | None = None
-        self.iteration_count = 0
-        self.retrieved_plan_uuids: list[str] = []
-        self.transcript_path: str | None = None
+class SessionState(BaseModel):
+    session_id: str
+    in_plan_mode: bool = False
+    rag_done: bool = False
+    initial_prompt: str | None = None
+    iteration_count: int = 0
+    retrieved_plan_uuids: list[str] = []
+    transcript_path: str | None = None

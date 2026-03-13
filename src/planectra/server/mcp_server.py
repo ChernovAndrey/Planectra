@@ -1,22 +1,16 @@
 from __future__ import annotations
 
-import atexit
 import os
-import sys
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
 from planectra import config
-from planectra.models import PlanRecord, ProjectConfig, SessionState
-from planectra.server import ipc
 from planectra.storage import disk, vector
-from planectra.transcript import extract_plan_conversation
 
 app = FastMCP("planectra")
 
-# In-memory state
-_sessions: dict[str, SessionState] = {}
+# Config cache (within MCP process)
 _global_config_cache: config.GlobalConfig | None = None
 
 
@@ -33,12 +27,6 @@ def _invalidate_config_cache() -> None:
     _global_config_cache = None
 
 
-def _get_session(session_id: str) -> SessionState:
-    if session_id not in _sessions:
-        _sessions[session_id] = SessionState(session_id)
-    return _sessions[session_id]
-
-
 # ─── MCP Tools ───────────────────────────────────────────────────────────────
 
 
@@ -46,13 +34,15 @@ def _get_session(session_id: str) -> SessionState:
 def planectra_init_project(
     project_name: str,
     project_dir: str = "",
+    existing_project_uuid: str = "",
     scan_project_ids: list[str] | None = None,
 ) -> str:
-    """Initialize a new project for plan tracking.
+    """Initialize a new project or assign this directory to an existing project.
 
     Args:
-        project_name: Human-readable name for the project
+        project_name: Human-readable name for the project (ignored if existing_project_uuid is set)
         project_dir: Working directory for this project (defaults to cwd)
+        existing_project_uuid: UUID of an existing project to assign this directory to (skip creation)
         scan_project_ids: List of project UUIDs to include in RAG search (defaults to self only)
     """
     if not project_dir:
@@ -65,13 +55,23 @@ def planectra_init_project(
         if existing:
             return f"Directory already configured as project '{existing.project_name}' ({existing_uuid})"
 
-    proj = ProjectConfig(
-        project_name=project_name,
-        project_dirs=[project_dir],
-        scan_project_ids=scan_project_ids or [],
-    )
-    if not proj.scan_project_ids:
-        proj.scan_project_ids = [proj.project_uuid]
+    # Assign to existing project
+    if existing_project_uuid:
+        proj = config.load_project_config(existing_project_uuid)
+        if not proj:
+            return f"Project {existing_project_uuid} not found."
+        if project_dir not in proj.project_dirs:
+            proj.project_dirs.append(project_dir)
+            config.save_project_config(proj)
+        gc.dir_to_project[project_dir] = proj.project_uuid
+        config.save_global_config(gc)
+        _invalidate_config_cache()
+        return f"Directory assigned to existing project '{proj.project_name}' ({proj.project_uuid})"
+
+    # Create new project
+    proj = config.create_project_config(project_name, project_dirs=[project_dir])
+    if scan_project_ids:
+        proj.scan_project_ids = scan_project_ids
 
     config.save_project_config(proj)
 
@@ -201,241 +201,12 @@ def planectra_update_config(
     return f"Project {project_uuid} config updated."
 
 
-# ─── IPC Handler ──────────────────────────────────────────────────────────────
-
-
-def handle_ipc(request: dict) -> dict:
-    """Handle IPC request from hook scripts."""
-    action = request.get("action", "")
-
-    handlers = {
-        "session_check": _handle_session_check,
-        "rag_query": _handle_rag_query,
-        "plan_accepted": _handle_plan_accepted,
-    }
-
-    handler = handlers.get(action)
-    if handler:
-        return handler(request)
-    return {"status": "error", "message": f"Unknown action: {action}"}
-
-
-def _handle_session_check(request: dict) -> dict:
-    """Check if current directory is configured for plan tracking."""
-    cwd = request.get("cwd", "")
-    session_id = request.get("session_id", "")
-
-    session = _get_session(session_id)
-    session.transcript_path = request.get("transcript_path")
-
-    project = config.get_project_for_dir(cwd)
-    if project:
-        return {
-            "status": "ok",
-            "configured": True,
-            "project_name": project.project_name,
-            "project_uuid": project.project_uuid,
-        }
-    return {
-        "status": "ok",
-        "configured": False,
-        "message": (
-            "[Planectra] This directory is not configured for plan tracking. "
-            "Use planectra_init_project to enable it."
-        ),
-    }
-
-
-def _handle_rag_query(request: dict) -> dict:
-    """Handle RAG query from UserPromptSubmit hook."""
-    session_id = request.get("session_id", "")
-    prompt = request.get("prompt", "")
-    cwd = request.get("cwd", "")
-
-    session = _get_session(session_id)
-    session.transcript_path = request.get("transcript_path")
-
-    project = config.get_project_for_dir(cwd)
-    if not project or not project.use_rag:
-        return {"status": "ok", "context": ""}
-
-    # RAG already done for this plan session — just increment
-    if session.rag_done:
-        session.iteration_count += 1
-        return {"status": "ok", "context": ""}
-
-    # First plan prompt — do RAG
-    session.in_plan_mode = True
-    session.initial_prompt = prompt
-    session.iteration_count = 1
-    session.rag_done = True
-
-    scan_ids = project.scan_project_ids or [project.project_uuid]
-    results = vector.query_similar(prompt, project_uuids=scan_ids, top_k=project.top_k)
-
-    if not results:
-        return {"status": "ok", "context": ""}
-
-    plan_uuids = [r["plan_uuid"] for r in results]
-    session.retrieved_plan_uuids = plan_uuids
-
-    context = _format_rag_context(results, project.rag_verbosity, project.max_rag_tokens)
-    return {"status": "ok", "context": context}
-
-
-def _handle_plan_accepted(request: dict) -> dict:
-    """Handle plan acceptance notification from PostToolUse hook."""
-    session_id = request.get("session_id", "")
-    transcript_path = request.get("transcript_path", "")
-    cwd = request.get("cwd", "")
-
-    session = _get_session(session_id)
-
-    project = config.get_project_for_dir(cwd)
-    if not project:
-        return {"status": "error", "message": "No project configured for this directory"}
-
-    plan_data = extract_plan_conversation(transcript_path)
-
-    if not plan_data["initial_prompt"] and not plan_data["plan_content"]:
-        return {"status": "error", "message": "Could not extract plan data from transcript"}
-
-    initial_prompt = session.initial_prompt or plan_data["initial_prompt"]
-
-    record = PlanRecord(
-        project_uuid=project.project_uuid,
-        project_name=project.project_name,
-        initial_prompt=initial_prompt,
-        plan_content=plan_data["plan_content"],
-        conversation=plan_data["conversation"],
-        num_attempts=plan_data["num_attempts"] or session.iteration_count or 1,
-        retrieved_plan_uuids=session.retrieved_plan_uuids,
-        session_id=session_id,
-        metadata={"cwd": cwd},
-    )
-
-    disk.save_plan(record)
-
-    vector.add_plan(
-        plan_uuid=record.plan_uuid,
-        document=initial_prompt,
-        project_uuid=project.project_uuid,
-        created_at=record.created_at,
-    )
-
-    # Reset session state for next plan
-    session.in_plan_mode = False
-    session.rag_done = False
-    session.initial_prompt = None
-    session.iteration_count = 0
-    session.retrieved_plan_uuids = []
-
-    finalize_msg = (
-        f"[Planectra] Plan recorded (UUID: {record.plan_uuid}). "
-        "Please call planectra_finalize_plan with your reflection on the planning process."
-    )
-    if project.include_user_comment:
-        finalize_msg += " Ask the user if they'd like to add any feedback."
-
-    return {
-        "status": "ok",
-        "message": finalize_msg,
-        "plan_uuid": record.plan_uuid,
-    }
-
-
-# ─── RAG Formatting ──────────────────────────────────────────────────────────
-
-
-def _format_rag_context(
-    results: list[dict[str, Any]],
-    verbosity: str,
-    max_tokens: int,
-) -> str:
-    """Format RAG results into XML context for injection."""
-    parts = ["<planectra-context>"]
-    char_budget = max_tokens * 4  # ~4 chars per token
-    used = len(parts[0])
-
-    for result in results:
-        record = disk.load_plan_by_uuid(result["plan_uuid"])
-        if not record:
-            continue
-
-        plan_xml = _format_single_plan(record, result["similarity"], verbosity)
-
-        if used + len(plan_xml) > char_budget:
-            break
-
-        parts.append(plan_xml)
-        used += len(plan_xml)
-
-    parts.append("</planectra-context>")
-    return "\n".join(parts)
-
-
-def _format_single_plan(record: PlanRecord, similarity: float, verbosity: str) -> str:
-    """Format a single plan record for RAG context."""
-    lines = [
-        f'<similar-plan similarity="{similarity:.2f}" '
-        f'project="{record.project_name}" '
-        f'attempts="{record.num_attempts}" '
-        f'date="{record.created_at[:10]}">'
-    ]
-    lines.append(f"<initial-prompt>{record.initial_prompt}</initial-prompt>")
-
-    if verbosity == "compact":
-        if record.plan_issues:
-            lines.append(f"<plan-issues>{record.plan_issues}</plan-issues>")
-        if record.improvement_summary:
-            lines.append(f"<improvement-summary>{record.improvement_summary}</improvement-summary>")
-
-    elif verbosity in ("standard", "full"):
-        for turn in record.conversation:
-            if turn.role == "assistant" and turn.attempt_number:
-                attempt = turn.attempt_number
-                is_final = attempt == record.num_attempts
-                status = "accepted" if is_final else "rejected"
-                lines.append(f'<draft attempt="{attempt}" status="{status}">')
-
-                content = turn.content
-                if verbosity == "standard" and len(content) > 2000:
-                    content = content[:2000] + "\n[...truncated...]"
-                lines.append(content)
-                lines.append("</draft>")
-
-            elif turn.role == "user" and turn.attempt_number and turn.attempt_number > 1:
-                lines.append(
-                    f'<user-feedback attempt="{turn.attempt_number - 1}">'
-                    f"{turn.content}</user-feedback>"
-                )
-
-        if record.plan_issues:
-            lines.append(f"<plan-issues>{record.plan_issues}</plan-issues>")
-        if record.improvement_summary:
-            lines.append(f"<improvement-summary>{record.improvement_summary}</improvement-summary>")
-        if record.rag_usefulness:
-            lines.append(f"<rag-usefulness>{record.rag_usefulness}</rag-usefulness>")
-
-    lines.append("</similar-plan>")
-    return "\n".join(lines)
-
-
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 
 def main():
-    """Start the MCP server with IPC socket."""
+    """Start the MCP server."""
     config.ensure_dirs()
-
-    # Start IPC socket server in background thread
-    ipc_thread = ipc.start_ipc_server(handle_ipc)
-    if ipc_thread is None:
-        print("[Planectra] Warning: Could not start IPC server (socket in use?)", file=sys.stderr)
-
-    atexit.register(ipc.cleanup_socket)
-
-    # Run MCP server (blocks on stdio)
     app.run(transport="stdio")
 
 

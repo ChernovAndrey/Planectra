@@ -1,3 +1,5 @@
+import sys
+
 from planectra import config
 from planectra.models import PlanRecord
 from planectra.storage import disk, vector
@@ -130,3 +132,34 @@ def test_vector_empty_collection(tmp_path, monkeypatch):
 
     results = vector.query_similar("anything", top_k=3)
     assert results == []
+
+
+def test_vector_import_does_not_trigger_chromadb():
+    """Importing planectra.storage.vector should NOT load chromadb at module level."""
+    # Remove vector module from cache to re-import
+    keys_to_remove = [k for k in sys.modules if k.startswith("planectra.storage.vector")]
+    saved = {}
+    for k in keys_to_remove:
+        saved[k] = sys.modules.pop(k)
+
+    # Also remove chromadb from cache if present
+    chromadb_keys = [k for k in sys.modules if k.startswith("chromadb")]
+    saved_chromadb = {}
+    for k in chromadb_keys:
+        saved_chromadb[k] = sys.modules.pop(k)
+
+    try:
+        import importlib
+
+        mod = importlib.import_module("planectra.storage.vector")
+        # After import, chromadb should NOT be in sys.modules
+        # (it's only imported inside get_collection)
+        assert "chromadb" not in sys.modules, "chromadb was imported at module level"
+        # But the module should still have get_collection
+        assert hasattr(mod, "get_collection")
+    finally:
+        # Restore modules
+        for k, v in saved.items():
+            sys.modules[k] = v
+        for k, v in saved_chromadb.items():
+            sys.modules[k] = v
