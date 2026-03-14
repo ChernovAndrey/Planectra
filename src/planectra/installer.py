@@ -27,7 +27,12 @@ PLANECTRA_HOOKS = {
     ],
     "SessionStart": [
         {
-            "hooks": [{"type": "command", "command": "planectra-hook-session", "timeout": 5}],
+            "hooks": [{
+                "type": "command",
+                "command": "planectra-hook-session",
+                "timeout": 5,
+                "statusMessage": "[Planectra] Initializing...",
+            }],
         }
     ],
 }
@@ -176,6 +181,7 @@ def _register_mcp_server(scope_args: list[str]) -> None:
             subprocess.run(cmd, capture_output=True, timeout=10)
     except FileNotFoundError:
         pass  # claude CLI not found
+
 
 
 def _add_claude_md_instructions(claude_md_path: Path) -> None:

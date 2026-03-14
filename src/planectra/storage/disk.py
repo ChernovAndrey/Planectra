@@ -48,5 +48,32 @@ def list_plans(project_uuid: str) -> list[PlanRecord]:
     return records
 
 
+def list_recent_plans(project_uuid: str = "", top_k: int = 5) -> list[PlanRecord]:
+    """List recent plans sorted by created_at descending.
+
+    If project_uuid is provided, only list plans from that project.
+    Otherwise, iterate all project dirs under PROJECTS_DIR.
+    """
+    records: list[PlanRecord] = []
+    projects_dir = config.PROJECTS_DIR
+    if not projects_dir.exists():
+        return []
+
+    if project_uuid:
+        dirs = [projects_dir / project_uuid]
+    else:
+        dirs = [d for d in projects_dir.iterdir() if d.is_dir()]
+
+    for project_dir in dirs:
+        plans_dir = project_dir / "plans"
+        if not plans_dir.exists():
+            continue
+        for f in plans_dir.glob("*.json"):
+            records.append(PlanRecord(**json.loads(f.read_text())))
+
+    records.sort(key=lambda r: r.created_at, reverse=True)
+    return records[:top_k]
+
+
 def update_plan(record: PlanRecord) -> Path:
     return save_plan(record)

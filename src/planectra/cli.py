@@ -241,6 +241,23 @@ def show(plan_uuid: str, as_json: bool):
             click.echo(f"  User comment: {record.user_comment}")
 
 
+@main.command()
+@click.option("--project", "project_uuid", default="", help="Limit to project UUID")
+@click.option("--top-k", default=5, help="Number of recent plans to show")
+def recent(project_uuid: str, top_k: int):
+    """Show the most recent plans."""
+    from planectra.storage.disk import list_recent_plans
+
+    results = list_recent_plans(project_uuid=project_uuid, top_k=top_k)
+    if not results:
+        click.echo("No plans found.")
+        return
+
+    for record in results:
+        click.echo(f"[{_format_date(record.created_at)}] {record.project_name}: {record.initial_prompt[:100]}")
+        click.echo(f"     UUID: {record.plan_uuid}, Attempts: {record.num_attempts}")
+
+
 @main.command("import")
 @click.option("--project", "project_uuid", default=None, help="Assign to project UUID")
 @click.option("--name", "project_name", default="imported", help="Project name for imported plans")

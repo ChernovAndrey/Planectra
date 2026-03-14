@@ -27,6 +27,7 @@ Planectra uses a **hook + MCP hybrid** architecture:
 │  │ MCP Tools (stdio)          │  │
 │  │ - planectra_finalize_plan  │  │
 │  │ - planectra_search_plans   │  │
+│  │ - planectra_recent_plans   │  │
 │  │ - planectra_init_project   │  │
 │  │ - planectra_list_projects  │  │
 │  │ - planectra_update_config  │  │
@@ -113,18 +114,17 @@ uv tool uninstall planectra
 
 ### 1. Initialize a project
 
-Open Claude Code in your project directory — the SessionStart hook will detect it's unconfigured and show existing projects:
-
-```
-[Planectra] This directory is not configured for plan tracking.
-Existing projects: backend-api, mobile-app
-Use planectra_init_project to create a new project or assign this directory to an existing one.
-```
-
-Claude can call `planectra_init_project` for you, or you can do it manually:
+Run the CLI in your project directory:
 
 ```bash
+cd ~/code/my-api
 planectra init my-project
+```
+
+Then open Claude Code — the SessionStart hook will confirm the project is configured:
+
+```
+[Planectra] Project: my-project
 ```
 
 ### 2. Plan as usual
@@ -231,6 +231,23 @@ $ planectra search "caching layer for API"
      UUID: a9b8c7d6-..., Attempts: 1
 ```
 
+### `planectra recent`
+
+Show the most recent plans.
+
+```bash
+$ planectra recent
+[Mar 14, 2026 at 10:30 AM] my-api: Add caching layer for API responses
+     UUID: f1e2d3c4-..., Attempts: 3
+[Mar 13, 2026 at 03:15 PM] mobile-app: Refactor navigation stack
+     UUID: a9b8c7d6-..., Attempts: 1
+```
+
+Filter by project or change result count:
+```bash
+$ planectra recent --project a1b2c3d4-... --top-k 10
+```
+
 ### `planectra show <plan-uuid>`
 
 Show full details of a plan.
@@ -325,6 +342,7 @@ These tools are available to Claude during a session:
 | `planectra_search_plans` | Semantic search across stored plans |
 | `planectra_finalize_plan` | Add structured reflection after plan acceptance |
 | `planectra_update_config` | Update project configuration |
+| `planectra_recent_plans` | List most recent plans sorted by date |
 
 ## RAG Context Format
 

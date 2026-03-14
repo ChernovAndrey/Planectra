@@ -132,6 +132,29 @@ def planectra_search_plans(
 
 
 @app.tool()
+def planectra_recent_plans(
+    project_uuid: str = "",
+    top_k: int = 5,
+) -> str:
+    """List the most recent plans, sorted by creation date (newest first).
+
+    Args:
+        project_uuid: Limit to a specific project (empty = all projects)
+        top_k: Number of recent plans to return
+    """
+    results = disk.list_recent_plans(project_uuid=project_uuid, top_k=top_k)
+
+    if not results:
+        return "No plans found."
+
+    lines = []
+    for record in results:
+        lines.append(f"[{record.created_at}] {record.project_name}: {record.initial_prompt[:100]}")
+        lines.append(f"  UUID: {record.plan_uuid}, Attempts: {record.num_attempts}")
+    return "\n".join(lines)
+
+
+@app.tool()
 def planectra_finalize_plan(
     plan_uuid: str,
     plan_issues: str = "",
