@@ -52,37 +52,58 @@ def main():
     if not plan_content and not initial_prompt:
         sys.exit(0)
 
-    record = PlanRecord(
-        project_uuid=project.project_uuid,
-        project_name=project.project_name,
-        initial_prompt=initial_prompt,
-        plan_content=plan_content,
-        conversation=plan_data["conversation"],
-        num_attempts=session.iteration_count or plan_data["num_attempts"] or 1,
-        retrieved_plan_uuids=session.retrieved_plan_uuids,
-        session_id=session_id,
-        metadata={"cwd": cwd},
-    )
+    if session.plan_uuid:
+        # Subsequent ExitPlanMode: update the existing plan record
+        record = disk.load_plan(project.project_uuid, session.plan_uuid)
+        if record:
+            record.plan_content = plan_content
+            record.conversation = plan_data["conversation"]
+            record.num_attempts = session.iteration_count or plan_data["num_attempts"] or 1
+            disk.update_plan(record)
+        else:
+            # Fallback: record was deleted externally, create a new one
+            record = PlanRecord(
+                project_uuid=project.project_uuid,
+                project_name=project.project_name,
+                initial_prompt=initial_prompt,
+                plan_content=plan_content,
+                conversation=plan_data["conversation"],
+                num_attempts=session.iteration_count or plan_data["num_attempts"] or 1,
+                retrieved_plan_uuids=session.retrieved_plan_uuids,
+                session_id=session_id,
+                metadata={"cwd": cwd},
+            )
+            disk.save_plan(record)
+            session.plan_uuid = record.plan_uuid
+            save_session(session)
+    else:
+        # First ExitPlanMode: create a new plan record
+        record = PlanRecord(
+            project_uuid=project.project_uuid,
+            project_name=project.project_name,
+            initial_prompt=initial_prompt,
+            plan_content=plan_content,
+            conversation=plan_data["conversation"],
+            num_attempts=session.iteration_count or plan_data["num_attempts"] or 1,
+            retrieved_plan_uuids=session.retrieved_plan_uuids,
+            session_id=session_id,
+            metadata={"cwd": cwd},
+        )
+        disk.save_plan(record)
 
-    disk.save_plan(record)
+        # Add to vector store only on first save
+        from planectra.storage import vector
 
-    # Lazy import: only pay chromadb cost on plan acceptance
-    from planectra.storage import vector
+        vector.add_plan(
+            plan_uuid=record.plan_uuid,
+            document=initial_prompt,
+            project_uuid=project.project_uuid,
+            created_at=record.created_at,
+        )
 
-    vector.add_plan(
-        plan_uuid=record.plan_uuid,
-        document=initial_prompt,
-        project_uuid=project.project_uuid,
-        created_at=record.created_at,
-    )
-
-    # Reset session state for next plan
-    session.in_plan_mode = False
-    session.rag_done = False
-    session.initial_prompt = None
-    session.iteration_count = 0
-    session.retrieved_plan_uuids = []
-    save_session(session)
+        # Track the plan UUID in session for subsequent revisions
+        session.plan_uuid = record.plan_uuid
+        save_session(session)
 
     finalize_msg = (
         f"[Planectra] Plan recorded (UUID: {record.plan_uuid}). "

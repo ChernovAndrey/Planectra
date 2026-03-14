@@ -29,6 +29,7 @@ def main():
     session.initial_prompt = initial_prompt
     session.iteration_count = 1
     session.rag_done = True
+    session.plan_uuid = None
     save_session(session)  # persist before slow RAG
 
     # RAG injection — depends on project config

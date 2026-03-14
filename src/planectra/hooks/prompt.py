@@ -31,6 +31,7 @@ def main():
         session.in_plan_mode = True
         session.rag_done = True
         session.iteration_count = 1
+        session.plan_uuid = None
         save_session(session)  # persist before slow RAG
 
         project = config.get_project_for_dir(cwd)

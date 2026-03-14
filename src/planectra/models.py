@@ -65,3 +65,4 @@ class SessionState(BaseModel):
     iteration_count: int = 0
     retrieved_plan_uuids: list[str] = []
     transcript_path: str | None = None
+    plan_uuid: str | None = None
