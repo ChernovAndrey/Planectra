@@ -10,7 +10,7 @@ Claude Code's plan mode produces valuable planning conversations, but this knowl
 
 Planectra uses a **hook + MCP hybrid** architecture:
 
-- **Hooks** (automatic, event-driven) — operate directly on config files and session state on disk. Inject RAG context on first plan-mode prompt, record plans on acceptance, check project configuration on session start
+- **Hooks** (automatic, event-driven) — operate directly on config files and session state on disk. Inject RAG context when entering plan mode, record plans on acceptance, check project configuration on session start
 - **MCP Server** (interactive, tool-only) — receives structured reflection data from Claude, manages projects, provides semantic search via MCP tools
 
 ```
@@ -34,15 +34,19 @@ Planectra uses a **hook + MCP hybrid** architecture:
 │  └────────────────────────────┘  │
 └──────────────────────────────────┘
 
-┌──────────────────────────────────────────────┐
-│  Hooks (self-contained, no IPC)              │
-│                                              │
-│  SessionStart  → config read (~5ms)          │
-│  PromptSubmit  → session state + RAG (~2-3s) │
-│  ExitPlanMode  → save plan + embed (~2-3s)   │
-│                                              │
-│  Session state: ~/.planectra/sessions/*.json  │
-└──────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────┐
+│  Hooks (self-contained, no IPC)                   │
+│                                                   │
+│  SessionStart   → config read (~5ms)              │
+│  EnterPlanMode  → session state + RAG (~2-3s)     │
+│  PromptSubmit   → session state + RAG (~2-3s)     │
+│  ExitPlanMode   → save plan + embed (~2-3s)       │
+│                                                   │
+│  RAG injection: EnterPlanMode or first plan        │
+│  prompt — whichever fires first (rag_done flag)   │
+│                                                   │
+│  Session state: ~/.planectra/sessions/*.json       │
+└───────────────────────────────────────────────────┘
 ```
 
 Hooks operate independently — they read config files and manage session state on disk. ChromaDB is imported lazily only when needed (first plan prompt or plan acceptance). Multiple Claude Code sessions work simultaneously with no conflicts.
@@ -53,16 +57,16 @@ Hooks operate independently — they read config files and manage session state 
 
 | Operation | Latency | When |
 |---|---|---|
-| Non-plan prompt | <10ms | Every normal prompt (transcript check, exit) |
+| Non-plan prompt | <10ms | Every normal prompt (permission check, exit) |
 | Subsequent plan prompts | ~10ms | Session file read + increment + write |
-| First plan prompt (RAG) | ~2-3s | Once per planning session (cold ChromaDB + ONNX) |
+| Enter plan mode (RAG) | ~2-3s | Once per planning session (cold ChromaDB + ONNX) |
 | Plan acceptance | ~2-3s | Once per plan (transcript parse + ChromaDB) |
 
 Embeddings run locally on CPU via ONNX Runtime (no GPU required).
 
 ## Installation
 
-Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/) (recommended) or pip.
+Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/) (recommended) or pip. Planectra also installs a `pln` alias for quicker CLI access.
 
 ### Option 1: Install from GitHub (no clone needed)
 
@@ -383,6 +387,8 @@ Per-project overrides. Created via `planectra init` or `planectra_init_project`.
 | `rag_verbosity` | inherited | Detail level: compact / standard / full |
 | `max_rag_tokens` | inherited | Token budget cap for RAG injection |
 | `include_user_comment` | inherited | Ask user for feedback after plan acceptance |
+| `embedding_model` | `"all-MiniLM-L6-v2"` | Embedding model name (ONNX Runtime) |
+| `include_reasoning_in_drafts` | `false` | Include reasoning tokens in stored plan drafts |
 | `scan_project_ids` | `[self]` | Cross-project RAG search scope (overridden by global `scan_all_projects`) |
 
 ## Data Storage
